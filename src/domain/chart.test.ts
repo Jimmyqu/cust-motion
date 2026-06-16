@@ -6,6 +6,12 @@ describe('builtInChart', () => {
     expect(isChartSorted(builtInChart)).toBe(true);
     expect(builtInChart.events.length).toBeGreaterThan(12);
   });
+
+  it('contains all first-version obstacle types', () => {
+    const obstacleKinds = new Set(builtInChart.events.filter((event) => event.kind === 'obstacle').map((event) => event.obstacle));
+
+    expect(obstacleKinds).toEqual(new Set(['left-wall', 'right-wall', 'low-wall']));
+  });
 });
 
 describe('chart queries', () => {

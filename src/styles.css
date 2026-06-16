@@ -40,6 +40,11 @@ button {
   cursor: pointer;
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 button.primary {
   border-color: rgba(89, 240, 255, 0.86);
   color: #021018;
@@ -204,6 +209,29 @@ h2 {
   border-left: 3px solid #f6cf5a;
   color: #ffe8a1;
   background: rgba(246, 207, 90, 0.1);
+}
+
+.calibration-meter {
+  height: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.calibration-meter span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #59f0ff, #55ffb0);
+  transition: width 140ms ease;
+}
+
+.calibration-status {
+  margin-bottom: 14px;
+  color: #dce9ff;
+  font-size: 14px;
 }
 
 .action-row,

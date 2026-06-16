@@ -1,4 +1,5 @@
 import { getUpcomingEvents } from '../domain/chart';
+import { CalibrationReadiness, type CalibrationReadinessState } from '../domain/calibrationReadiness';
 import { RhythmGameEngine } from '../domain/gameEngine';
 import { MotionAnalyzer, calibratePose } from '../domain/motionAnalyzer';
 import type { CalibrationProfile, Chart, MotionInput, PoseFrame } from '../domain/types';
@@ -6,6 +7,7 @@ import { AudioClock } from '../infrastructure/audioClock';
 import { CameraPoseSource, SimulatedPoseSource, type PoseSource } from '../infrastructure/cameraPose';
 import { DebugOverlay } from '../rendering/DebugOverlay';
 import { GameRenderer } from '../rendering/GameRenderer';
+import { isWebGLSupported } from '../rendering/webglSupport';
 
 type AppMode = 'boot' | 'permission' | 'loading' | 'calibration' | 'countdown' | 'playing' | 'paused' | 'results' | 'error';
 type QualityMode = 'high' | 'low';
@@ -14,8 +16,8 @@ export class CameraRhythmSaberApp {
   private readonly stage: HTMLDivElement;
   private readonly hud: HTMLDivElement;
   private readonly panel: HTMLDivElement;
-  private readonly renderer: GameRenderer;
-  private readonly debugOverlay: DebugOverlay;
+  private readonly renderer?: GameRenderer;
+  private readonly debugOverlay?: DebugOverlay;
   private readonly audioClock: AudioClock;
   private readonly engine: RhythmGameEngine;
   private poseSource?: PoseSource;
@@ -23,6 +25,8 @@ export class CameraRhythmSaberApp {
   private latestMotion?: MotionInput;
   private calibration?: CalibrationProfile;
   private analyzer?: MotionAnalyzer;
+  private calibrationReadiness = new CalibrationReadiness();
+  private readinessState: CalibrationReadinessState = { ready: false, progress: 0, stableForMs: 0 };
   private mode: AppMode = 'boot';
   private quality: QualityMode = 'high';
   private rafId?: number;
@@ -43,9 +47,11 @@ export class CameraRhythmSaberApp {
     this.stage = requireElement(this.root, '.stage');
     this.hud = requireElement(this.root, '.hud');
     this.panel = requireElement(this.root, '.panel');
-    this.renderer = new GameRenderer(this.stage);
-    this.debugOverlay = new DebugOverlay(this.stage);
-    this.debugOverlay.setVisible(false);
+    if (isWebGLSupported()) {
+      this.renderer = new GameRenderer(this.stage);
+      this.debugOverlay = new DebugOverlay(this.stage);
+      this.debugOverlay.setVisible(false);
+    }
     this.audioClock = new AudioClock(chart.durationMs);
     this.engine = new RhythmGameEngine(chart);
   }
@@ -61,14 +67,18 @@ export class CameraRhythmSaberApp {
     }
     this.poseSource?.stop();
     this.audioClock.stop();
-    this.renderer.dispose();
-    this.debugOverlay.dispose();
+    this.renderer?.dispose();
+    this.debugOverlay?.dispose();
   }
 
   private showBoot(): void {
     this.mode = 'boot';
-    this.debugOverlay.setVisible(false);
+    this.debugOverlay?.setVisible(false);
     this.hud.innerHTML = '';
+    if (!this.renderer) {
+      this.showError('当前浏览器不支持 WebGL，无法渲染 3D 游戏舞台。请换用支持 WebGL 的移动浏览器。');
+      return;
+    }
     this.panel.innerHTML = `
       <section class="panel-card wide">
         <p class="eyebrow">Cust Motion</p>
@@ -98,7 +108,7 @@ export class CameraRhythmSaberApp {
     try {
       await this.initializePoseSource(new CameraPoseSource(this.quality === 'low' ? 66 : 40));
     } catch (error) {
-      await this.initializePoseSource(new SimulatedPoseSource(), readableError(error));
+      this.showError(`前置摄像头或姿态模型启动失败：${readableError(error)}`);
     }
   }
 
@@ -115,10 +125,6 @@ export class CameraRhythmSaberApp {
       await source.start((frame) => this.onPoseFrame(frame));
       this.showCalibration(warning);
     } catch (error) {
-      if (source instanceof CameraPoseSource) {
-        await this.initializePoseSource(new SimulatedPoseSource(), readableError(error));
-        return;
-      }
       this.showError(readableError(error));
     }
   }
@@ -131,42 +137,72 @@ export class CameraRhythmSaberApp {
         this.analyzer = new MotionAnalyzer(this.calibration, {
           smoothing: this.quality === 'low' ? 0.45 : 0.32,
         });
+        this.calibrationReadiness.reset();
       } catch {
         return;
       }
     }
     this.latestMotion = this.analyzer?.analyze(frame);
+    if (this.latestMotion) {
+      this.readinessState = this.calibrationReadiness.update(this.latestMotion);
+      if (this.mode === 'calibration') {
+        this.updateCalibrationPanel();
+      }
+    }
   }
 
   private showCalibration(warning?: string): void {
     this.mode = 'calibration';
-    this.debugOverlay.setVisible(true);
+    this.debugOverlay?.setVisible(true);
+    this.renderCalibrationPanel(warning);
+    this.bindPanelActions();
+  }
+
+  private updateCalibrationPanel(): void {
+    const progress = this.panel.querySelector<HTMLElement>('[data-calibration-progress]');
+    const status = this.panel.querySelector<HTMLElement>('[data-calibration-status]');
+    const start = this.panel.querySelector<HTMLButtonElement>('[data-action="countdown"]');
+    if (!progress || !status || !start) {
+      return;
+    }
+    progress.style.width = `${Math.round(this.readinessState.progress * 100)}%`;
+    status.textContent = this.readinessState.ready
+      ? '追踪稳定，可以开始关卡。'
+      : `保持站姿，正在确认稳定追踪 ${Math.round(this.readinessState.progress * 100)}%`;
+    start.disabled = !this.readinessState.ready;
+  }
+
+  private renderCalibrationPanel(warning?: string): void {
     this.panel.innerHTML = `
       <section class="panel-card compact">
         <p class="eyebrow">校准 / 调试</p>
         <h2>站入画面中央</h2>
         <p class="subtitle">调试时显示镜像摄像头、骨架、关键点、手部轨迹和识别指标。</p>
+        <div class="calibration-meter" aria-label="追踪稳定度">
+          <span data-calibration-progress></span>
+        </div>
+        <p class="calibration-status" data-calibration-status>等待肩膀、髋部和双手进入画面。</p>
         ${warning ? `<p class="warning">${warning}</p>` : ''}
         <div class="action-row">
-          <button class="primary" data-action="countdown">开始关卡</button>
+          <button class="primary" data-action="countdown" disabled>开始关卡</button>
           <button data-action="recalibrate">重新校准</button>
           <button data-action="fullscreen">全屏</button>
         </div>
       </section>
     `;
-    this.bindPanelActions();
+    this.updateCalibrationPanel();
   }
 
   private beginCountdown(): void {
     this.mode = 'countdown';
-    this.debugOverlay.setVisible(false);
+    this.debugOverlay?.setVisible(false);
     this.countdownStartedAt = performance.now();
     this.panel.innerHTML = `<section class="countdown" data-countdown>3</section>`;
   }
 
   private async beginPlay(): Promise<void> {
     this.mode = 'playing';
-    this.debugOverlay.setVisible(false);
+    this.debugOverlay?.setVisible(false);
     this.panel.innerHTML = '';
     await this.audioClock.start();
   }
@@ -197,7 +233,7 @@ export class CameraRhythmSaberApp {
   private showResults(): void {
     this.mode = 'results';
     this.audioClock.stop();
-    this.debugOverlay.setVisible(false);
+    this.debugOverlay?.setVisible(false);
     const state = this.engine.state;
     const hitRate = state.hits + state.misses === 0 ? 0 : Math.round((state.hits / (state.hits + state.misses)) * 100);
     this.panel.innerHTML = `
@@ -257,11 +293,15 @@ export class CameraRhythmSaberApp {
         await document.documentElement.requestFullscreen?.();
         break;
       case 'countdown':
-        this.beginCountdown();
+        if (this.readinessState.ready) {
+          this.beginCountdown();
+        }
         break;
       case 'recalibrate':
         this.calibration = undefined;
         this.analyzer = undefined;
+        this.calibrationReadiness.reset();
+        this.readinessState = { ready: false, progress: 0, stableForMs: 0 };
         this.showCalibration();
         break;
       case 'calibration':
@@ -284,7 +324,7 @@ export class CameraRhythmSaberApp {
     this.fps = this.fps === 0 ? 1000 / delta : this.fps * 0.9 + (1000 / delta) * 0.1;
 
     if (this.mode === 'calibration') {
-      this.debugOverlay.draw(this.poseSource?.state.video, this.latestPose, this.latestMotion, this.fps);
+      this.debugOverlay?.draw(this.poseSource?.state.video, this.latestPose, this.latestMotion, this.fps);
     }
 
     if (this.mode === 'countdown') {
@@ -305,10 +345,10 @@ export class CameraRhythmSaberApp {
       for (const hit of feedback?.hits ?? []) {
         const event = this.chart.events.find((candidate) => candidate.id === hit.eventId);
         if (event?.kind === 'target') {
-          this.renderer.flashHit(event.hand);
+      this.renderer?.flashHit(event.hand);
         }
       }
-      this.renderer.render(time, this.latestMotion, upcoming);
+      this.renderer?.render(time, this.latestMotion, upcoming);
       this.renderHud(time);
       if (feedback?.status === 'tracking-lost') {
         this.showPaused();
@@ -317,7 +357,7 @@ export class CameraRhythmSaberApp {
       }
     } else {
       const previewTime = (now % this.chart.durationMs);
-      this.renderer.render(previewTime, this.latestMotion, getUpcomingEvents(this.chart, previewTime, 2_600));
+      this.renderer?.render(previewTime, this.latestMotion, getUpcomingEvents(this.chart, previewTime, 2_600));
       this.renderHud(previewTime, true);
     }
 
