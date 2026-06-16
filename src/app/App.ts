@@ -5,6 +5,7 @@ import { MotionAnalyzer, calibratePose } from '../domain/motionAnalyzer';
 import type { CalibrationProfile, Chart, MotionInput, PoseFrame } from '../domain/types';
 import { AudioClock } from '../infrastructure/audioClock';
 import { CameraPoseSource, SimulatedPoseSource, type PoseSource } from '../infrastructure/cameraPose';
+import { requestLandscapeImmersion } from '../infrastructure/immersiveDisplay';
 import { DebugOverlay } from '../rendering/DebugOverlay';
 import { GameRenderer } from '../rendering/GameRenderer';
 import { isWebGLSupported } from '../rendering/webglSupport';
@@ -110,6 +111,7 @@ export class CameraRhythmSaberApp {
   }
 
   private async startCamera(): Promise<void> {
+    void this.enterLandscapeImmersion();
     this.mode = 'permission';
     this.panel.innerHTML = `<section class="panel-card"><h2>正在请求前摄权限</h2><p class="subtitle">请允许浏览器访问前置摄像头。</p></section>`;
     try {
@@ -120,6 +122,7 @@ export class CameraRhythmSaberApp {
   }
 
   private async startSimulated(): Promise<void> {
+    void this.enterLandscapeImmersion();
     await this.initializePoseSource(new SimulatedPoseSource());
   }
 
@@ -201,6 +204,7 @@ export class CameraRhythmSaberApp {
   }
 
   private beginCountdown(): void {
+    void this.enterLandscapeImmersion();
     this.mode = 'countdown';
     this.debugOverlay?.setVisible(false);
     this.countdownStartedAt = performance.now();
@@ -298,7 +302,7 @@ export class CameraRhythmSaberApp {
         this.rebuildRenderer();
         break;
       case 'fullscreen':
-        await document.documentElement.requestFullscreen?.();
+        await this.enterLandscapeImmersion();
         break;
       case 'countdown':
         if (this.readinessState.ready) {
@@ -383,6 +387,10 @@ export class CameraRhythmSaberApp {
         <span style="width: ${Math.round(Math.min(1, timeMs / this.chart.durationMs) * 100)}%"></span>
       </div>
     `;
+  }
+
+  private async enterLandscapeImmersion(): Promise<void> {
+    await requestLandscapeImmersion();
   }
 }
 
