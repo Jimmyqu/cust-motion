@@ -16,8 +16,8 @@ export class CameraRhythmSaberApp {
   private readonly stage: HTMLDivElement;
   private readonly hud: HTMLDivElement;
   private readonly panel: HTMLDivElement;
-  private readonly renderer?: GameRenderer;
-  private readonly debugOverlay?: DebugOverlay;
+  private renderer?: GameRenderer;
+  private debugOverlay?: DebugOverlay;
   private readonly audioClock: AudioClock;
   private readonly engine: RhythmGameEngine;
   private poseSource?: PoseSource;
@@ -29,6 +29,7 @@ export class CameraRhythmSaberApp {
   private readinessState: CalibrationReadinessState = { ready: false, progress: 0, stableForMs: 0 };
   private mode: AppMode = 'boot';
   private quality: QualityMode = 'high';
+  private readonly webglSupported = isWebGLSupported();
   private rafId?: number;
   private countdownStartedAt = 0;
   private lastFrameAt = performance.now();
@@ -47,10 +48,8 @@ export class CameraRhythmSaberApp {
     this.stage = requireElement(this.root, '.stage');
     this.hud = requireElement(this.root, '.hud');
     this.panel = requireElement(this.root, '.panel');
-    if (isWebGLSupported()) {
-      this.renderer = new GameRenderer(this.stage);
-      this.debugOverlay = new DebugOverlay(this.stage);
-      this.debugOverlay.setVisible(false);
+    if (this.webglSupported) {
+      this.rebuildRenderer();
     }
     this.audioClock = new AudioClock(chart.durationMs);
     this.engine = new RhythmGameEngine(chart);
@@ -71,11 +70,19 @@ export class CameraRhythmSaberApp {
     this.debugOverlay?.dispose();
   }
 
+  private rebuildRenderer(): void {
+    this.renderer?.dispose();
+    this.debugOverlay?.dispose();
+    this.renderer = new GameRenderer(this.stage, this.quality);
+    this.debugOverlay = new DebugOverlay(this.stage);
+    this.debugOverlay.setVisible(false);
+  }
+
   private showBoot(): void {
     this.mode = 'boot';
     this.debugOverlay?.setVisible(false);
     this.hud.innerHTML = '';
-    if (!this.renderer) {
+    if (!this.webglSupported) {
       this.showError('当前浏览器不支持 WebGL，无法渲染 3D 游戏舞台。请换用支持 WebGL 的移动浏览器。');
       return;
     }
@@ -288,6 +295,7 @@ export class CameraRhythmSaberApp {
         break;
       case 'quality':
         this.quality = (element as HTMLSelectElement).value === 'low' ? 'low' : 'high';
+        this.rebuildRenderer();
         break;
       case 'fullscreen':
         await document.documentElement.requestFullscreen?.();
@@ -371,6 +379,9 @@ export class CameraRhythmSaberApp {
       <div class="hud-center">${state.combo} COMBO</div>
       <div class="hud-pill">${state.score} pts · HP ${state.health}</div>
       <div class="tracking-dot ${this.latestMotion?.trackingQuality ?? 'lost'}"></div>
+      <div class="progress-track" aria-label="关卡进度">
+        <span style="width: ${Math.round(Math.min(1, timeMs / this.chart.durationMs) * 100)}%"></span>
+      </div>
     `;
   }
 }

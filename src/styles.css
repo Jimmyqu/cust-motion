@@ -131,6 +131,21 @@ select {
   background: #f6cf5a;
 }
 
+.progress-track {
+  grid-column: 1 / -1;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #59f0ff, #ff4f79);
+}
+
 .panel {
   position: absolute;
   z-index: 5;

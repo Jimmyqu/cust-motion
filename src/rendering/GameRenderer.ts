@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { ChartEvent, MotionInput, ObstacleEvent, TargetEvent } from '../domain/types';
+import { resolveRenderQuality, type RenderQualityMode, type RenderQualitySettings } from './renderQuality';
 
 interface RenderObject {
   id: string;
@@ -25,14 +26,16 @@ export class GameRenderer {
   private readonly saberGroup = new THREE.Group();
   private readonly particles: THREE.Points;
   private readonly tunnel = new THREE.Group();
+  private readonly quality: RenderQualitySettings;
 
-  constructor(container: HTMLElement) {
+  constructor(container: HTMLElement, qualityMode: RenderQualityMode = 'high') {
+    this.quality = resolveRenderQuality(qualityMode, window.devicePixelRatio);
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'game-canvas';
     container.appendChild(this.canvas);
 
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, alpha: false });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    this.renderer.setPixelRatio(this.quality.pixelRatio);
     this.renderer.setClearColor('#03050c');
     this.camera.position.set(0, 1.4, 7.5);
     this.camera.lookAt(0, 0.5, -8);
@@ -131,7 +134,7 @@ export class GameRenderer {
   }
 
   private createParticles(): THREE.Points {
-    const count = 500;
+    const count = this.quality.particleCount;
     const positions = new Float32Array(count * 3);
     for (let i = 0; i < count; i += 1) {
       positions[i * 3] = (Math.random() - 0.5) * 8;

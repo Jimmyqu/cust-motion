@@ -56,6 +56,7 @@ export class DebugOverlay {
     }
 
     if (pose) {
+      this.drawCalibrationGuides();
       this.drawSkeleton(pose);
     }
     if (motion) {
@@ -91,6 +92,41 @@ export class DebugOverlay {
       ctx.fill();
     }
     ctx.globalAlpha = 1;
+  }
+
+  private drawCalibrationGuides(): void {
+    const ctx = this.context;
+    const width = this.canvas.width;
+    const height = this.canvas.height;
+    const safeLeft = width * 0.36;
+    const safeRight = width * 0.64;
+    const hitY = height * 0.52;
+
+    ctx.save();
+    ctx.globalAlpha = 0.8;
+    ctx.strokeStyle = '#55ffb0';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([10, 10]);
+    ctx.strokeRect(safeLeft, height * 0.24, safeRight - safeLeft, height * 0.54);
+
+    ctx.strokeStyle = '#f6cf5a';
+    ctx.beginPath();
+    ctx.moveTo(width * 0.5, 0);
+    ctx.lineTo(width * 0.5, height);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.strokeStyle = '#29c9ff';
+    ctx.strokeRect(width * 0.24, hitY - 50, width * 0.16, 100);
+    ctx.strokeStyle = '#ff3868';
+    ctx.strokeRect(width * 0.6, hitY - 50, width * 0.16, 100);
+
+    ctx.fillStyle = '#dce9ff';
+    ctx.font = '14px ui-sans-serif, system-ui';
+    ctx.fillText('standing zone', safeLeft + 8, height * 0.24 + 22);
+    ctx.fillText('left hit zone', width * 0.24, hitY - 58);
+    ctx.fillText('right hit zone', width * 0.6, hitY - 58);
+    ctx.restore();
   }
 
   private drawMotion(motion: MotionInput, fps: number): void {
