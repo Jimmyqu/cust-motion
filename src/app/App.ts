@@ -2,6 +2,7 @@ import { getUpcomingEvents } from '../domain/chart';
 import { CalibrationReadiness, type CalibrationReadinessState } from '../domain/calibrationReadiness';
 import { RhythmGameEngine } from '../domain/gameEngine';
 import { MotionAnalyzer, calibratePose } from '../domain/motionAnalyzer';
+import { TrackingRecoveryGate, type TrackingRecoveryState } from '../domain/trackingRecovery';
 import type { CalibrationProfile, Chart, MotionInput, PoseFrame } from '../domain/types';
 import { AudioClock } from '../infrastructure/audioClock';
 import { CameraPoseSource, SimulatedPoseSource, type PoseSource } from '../infrastructure/cameraPose';
@@ -28,6 +29,8 @@ export class CameraRhythmSaberApp {
   private analyzer?: MotionAnalyzer;
   private calibrationReadiness = new CalibrationReadiness();
   private readinessState: CalibrationReadinessState = { ready: false, progress: 0, stableForMs: 0 };
+  private trackingRecovery = new TrackingRecoveryGate();
+  private trackingRecoveryState: TrackingRecoveryState = { canResume: false, progress: 0, stableForMs: 0 };
   private mode: AppMode = 'boot';
   private quality: QualityMode = 'high';
   private readonly webglSupported = isWebGLSupported();
@@ -158,6 +161,10 @@ export class CameraRhythmSaberApp {
       if (this.mode === 'calibration') {
         this.updateCalibrationPanel();
       }
+      if (this.mode === 'paused') {
+        this.trackingRecoveryState = this.trackingRecovery.update(this.latestMotion);
+        this.updatePausedPanel();
+      }
     }
   }
 
@@ -221,21 +228,44 @@ export class CameraRhythmSaberApp {
   private showPaused(): void {
     this.mode = 'paused';
     this.audioClock.pause();
+    this.trackingRecovery.reset();
+    this.trackingRecoveryState = { canResume: false, progress: 0, stableForMs: 0 };
     this.panel.innerHTML = `
       <section class="panel-card compact">
         <p class="eyebrow">追踪丢失</p>
         <h2>回到镜头中</h2>
         <p class="subtitle">站回有效区域后可继续，或返回校准查看骨架。</p>
+        <div class="calibration-meter" aria-label="恢复追踪稳定度">
+          <span data-recovery-progress></span>
+        </div>
+        <p class="calibration-status" data-recovery-status>等待稳定追踪后继续。</p>
         <div class="action-row">
-          <button class="primary" data-action="resume">继续</button>
+          <button class="primary" data-action="resume" disabled>继续</button>
           <button data-action="calibration">校准</button>
         </div>
       </section>
     `;
+    this.updatePausedPanel();
     this.bindPanelActions();
   }
 
+  private updatePausedPanel(): void {
+    const progress = this.panel.querySelector<HTMLElement>('[data-recovery-progress]');
+    const status = this.panel.querySelector<HTMLElement>('[data-recovery-status]');
+    const resume = this.panel.querySelector<HTMLButtonElement>('[data-action="resume"]');
+    if (!progress || !status || !resume) {
+      return;
+    }
+    progress.style.width = `${Math.round(this.trackingRecoveryState.progress * 100)}%`;
+    status.textContent = this.trackingRecoveryState.canResume
+      ? '追踪已恢复，可以继续。'
+      : `保持站姿，正在恢复追踪 ${Math.round(this.trackingRecoveryState.progress * 100)}%`;
+    resume.disabled = !this.trackingRecoveryState.canResume;
+  }
+
   private async resumePlay(): Promise<void> {
+    this.trackingRecovery.reset();
+    this.trackingRecoveryState = { canResume: false, progress: 0, stableForMs: 0 };
     this.mode = 'playing';
     this.panel.innerHTML = '';
     await this.audioClock.resume();
@@ -314,14 +344,20 @@ export class CameraRhythmSaberApp {
         this.analyzer = undefined;
         this.calibrationReadiness.reset();
         this.readinessState = { ready: false, progress: 0, stableForMs: 0 };
+        this.trackingRecovery.reset();
+        this.trackingRecoveryState = { canResume: false, progress: 0, stableForMs: 0 };
         this.showCalibration();
         break;
       case 'calibration':
         this.audioClock.pause();
+        this.trackingRecovery.reset();
+        this.trackingRecoveryState = { canResume: false, progress: 0, stableForMs: 0 };
         this.showCalibration();
         break;
       case 'resume':
-        await this.resumePlay();
+        if (this.trackingRecoveryState.canResume) {
+          await this.resumePlay();
+        }
         break;
       case 'restart':
         window.location.reload();
