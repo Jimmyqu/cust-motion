@@ -1,8 +1,10 @@
 import type { Chart, MotionInput, ObstacleEvent, PlayStatus, ScoreState, TargetEvent } from './types';
+import { isInsideTargetZone } from './playfield';
 
 interface EngineOptions {
   minSwingSpeed?: number;
   trackingLossGraceMs?: number;
+  hitRadius?: number;
 }
 
 interface HitFeedback {
@@ -40,6 +42,7 @@ export class RhythmGameEngine {
   private readonly collidedObstacles = new Set<string>();
   private readonly minSwingSpeed: number;
   private readonly trackingLossGraceMs: number;
+  private readonly hitRadius: number;
   private trackingLostSince?: number;
 
   constructor(
@@ -48,6 +51,7 @@ export class RhythmGameEngine {
   ) {
     this.minSwingSpeed = options.minSwingSpeed ?? 0.8;
     this.trackingLossGraceMs = options.trackingLossGraceMs ?? 700;
+    this.hitRadius = options.hitRadius ?? 0.16;
   }
 
   update(timeMs: number, motion: MotionInput): EngineFeedback {
@@ -110,6 +114,9 @@ export class RhythmGameEngine {
   private tryHitTarget(target: TargetEvent, motion: MotionInput, timingDeltaMs: number): HitFeedback | undefined {
     const hand = target.hand === 'left' ? motion.leftHand : motion.rightHand;
     if (hand.speed < this.minSwingSpeed || hand.confidence < 0.35) {
+      return undefined;
+    }
+    if (!isInsideTargetZone(target.lane, hand.position, this.hitRadius)) {
       return undefined;
     }
 

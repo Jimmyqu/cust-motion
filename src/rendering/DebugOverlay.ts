@@ -1,4 +1,5 @@
 import type { MotionInput, PoseFrame, PoseKeypointName } from '../domain/types';
+import { targetZoneByLane } from '../domain/playfield';
 
 const bones: [PoseKeypointName, PoseKeypointName][] = [
   ['left_shoulder', 'right_shoulder'],
@@ -100,7 +101,8 @@ export class DebugOverlay {
     const height = this.canvas.height;
     const safeLeft = width * 0.36;
     const safeRight = width * 0.64;
-    const hitY = height * 0.52;
+    const leftHit = targetZoneByLane['center-left'];
+    const rightHit = targetZoneByLane['center-right'];
 
     ctx.save();
     ctx.globalAlpha = 0.8;
@@ -117,15 +119,15 @@ export class DebugOverlay {
     ctx.setLineDash([]);
 
     ctx.strokeStyle = '#29c9ff';
-    ctx.strokeRect(width * 0.24, hitY - 50, width * 0.16, 100);
+    ctx.strokeRect(width * leftHit.x - width * 0.08, height * leftHit.y - 50, width * 0.16, 100);
     ctx.strokeStyle = '#ff3868';
-    ctx.strokeRect(width * 0.6, hitY - 50, width * 0.16, 100);
+    ctx.strokeRect(width * rightHit.x - width * 0.08, height * rightHit.y - 50, width * 0.16, 100);
 
     ctx.fillStyle = '#dce9ff';
     ctx.font = '14px ui-sans-serif, system-ui';
     ctx.fillText('standing zone', safeLeft + 8, height * 0.24 + 22);
-    ctx.fillText('left hit zone', width * 0.24, hitY - 58);
-    ctx.fillText('right hit zone', width * 0.6, hitY - 58);
+    ctx.fillText('left hit zone', width * leftHit.x - width * 0.08, height * leftHit.y - 58);
+    ctx.fillText('right hit zone', width * rightHit.x - width * 0.08, height * rightHit.y - 58);
     ctx.restore();
   }
 
