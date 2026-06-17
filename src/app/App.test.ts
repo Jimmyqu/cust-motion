@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Chart } from '../domain/types';
 
 const { cameraSources, debugOverlays } = vi.hoisted(() => ({
-  cameraSources: [] as Array<{ start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> }>,
+  cameraSources: [] as Array<{ inferenceIntervalMs?: number; start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> }>,
   debugOverlays: [] as Array<{ setVisible: ReturnType<typeof vi.fn>; draw: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }>,
 }));
 
@@ -67,7 +67,7 @@ vi.mock('../infrastructure/cameraPose', () => ({
     start = vi.fn().mockRejectedValue(new DOMException('Permission denied', 'NotAllowedError'));
     stop = vi.fn();
 
-    constructor() {
+    constructor(readonly inferenceIntervalMs?: number) {
       cameraSources.push(this);
     }
   },
@@ -105,6 +105,23 @@ describe('CameraRhythmSaberApp', () => {
     expect(root.innerHTML).toContain('模拟模式');
 
     app.dispose();
+  });
+
+  it('releases a failed camera source before the user retries or switches mode', async () => {
+    const { CameraRhythmSaberApp } = await import('./App');
+    const root = new FakeElement('root');
+    const app = new CameraRhythmSaberApp(root as unknown as HTMLElement, testChart);
+
+    app.start();
+    root.findAction('start-camera').click();
+    await flushPromises();
+
+    expect(cameraSources).toHaveLength(1);
+    expect(cameraSources[0].stop).toHaveBeenCalledTimes(1);
+
+    app.dispose();
+
+    expect(cameraSources[0].stop).toHaveBeenCalledTimes(1);
   });
 
   it('shows the debug overlay during calibration and hides it for countdown play', async () => {

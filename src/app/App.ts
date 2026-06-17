@@ -139,6 +139,10 @@ export class CameraRhythmSaberApp {
       await source.start((frame) => this.onPoseFrame(frame));
       this.showCalibration(warning);
     } catch (error) {
+      source.stop();
+      if (this.poseSource === source) {
+        this.poseSource = undefined;
+      }
       this.showError(describeError(error));
     }
   }
