@@ -119,7 +119,7 @@ export class CameraRhythmSaberApp {
     this.mode = 'permission';
     this.panel.innerHTML = `<section class="panel-card"><h2>正在请求前摄权限</h2><p class="subtitle">请允许浏览器访问前置摄像头。</p></section>`;
     try {
-      await this.initializePoseSource(new CameraPoseSource(this.quality === 'low' ? 66 : 40));
+      await this.initializePoseSource(new CameraPoseSource(this.quality === 'low' ? 66 : 40), undefined, describeCameraStartupError);
     } catch (error) {
       this.showError(describeCameraStartupError(error));
     }
@@ -130,7 +130,7 @@ export class CameraRhythmSaberApp {
     await this.initializePoseSource(new SimulatedPoseSource());
   }
 
-  private async initializePoseSource(source: PoseSource, warning?: string): Promise<void> {
+  private async initializePoseSource(source: PoseSource, warning?: string, describeError = readableError): Promise<void> {
     this.mode = 'loading';
     this.poseSource?.stop();
     this.poseSource = source;
@@ -139,7 +139,7 @@ export class CameraRhythmSaberApp {
       await source.start((frame) => this.onPoseFrame(frame));
       this.showCalibration(warning);
     } catch (error) {
-      this.showError(readableError(error));
+      this.showError(describeError(error));
     }
   }
 
