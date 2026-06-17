@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Chart, PoseFrame } from '../domain/types';
 
-const { audioClocks, cameraSources, debugOverlays, renderers, simulatedSources } = vi.hoisted(() => ({
+const { audioClocks, cameraSources, debugOverlays, renderers, simulatedSources, cameraStartError, webglSupported } = vi.hoisted(() => ({
   audioClocks: [] as Array<{
     currentTimeMs: number;
     state: string;
@@ -19,6 +19,8 @@ const { audioClocks, cameraSources, debugOverlays, renderers, simulatedSources }
     start: ReturnType<typeof vi.fn>;
     stop: ReturnType<typeof vi.fn>;
   }>,
+  cameraStartError: { current: new DOMException('Permission denied', 'NotAllowedError') as Error },
+  webglSupported: { current: true },
 }));
 
 const stablePose: PoseFrame = {
@@ -34,7 +36,7 @@ const stablePose: PoseFrame = {
 };
 
 vi.mock('../rendering/webglSupport', () => ({
-  isWebGLSupported: () => true,
+  isWebGLSupported: () => webglSupported.current,
 }));
 
 vi.mock('../rendering/GameRenderer', () => ({
@@ -85,7 +87,7 @@ vi.mock('../infrastructure/immersiveDisplay', () => ({
 vi.mock('../infrastructure/cameraPose', () => ({
   CameraPoseSource: class {
     state = { mode: 'camera' };
-    start = vi.fn().mockRejectedValue(new DOMException('Permission denied', 'NotAllowedError'));
+    start = vi.fn().mockImplementation(() => Promise.reject(cameraStartError.current));
     stop = vi.fn();
 
     constructor(readonly inferenceIntervalMs?: number) {
@@ -125,6 +127,8 @@ describe('CameraRhythmSaberApp', () => {
     debugOverlays.length = 0;
     renderers.length = 0;
     simulatedSources.length = 0;
+    cameraStartError.current = new DOMException('Permission denied', 'NotAllowedError');
+    webglSupported.current = true;
     animationFrames = [];
     nowMs = 1_000;
     vi.spyOn(performance, 'now').mockImplementation(() => nowMs);
@@ -147,6 +151,47 @@ describe('CameraRhythmSaberApp', () => {
     expect(root.innerHTML).toContain('请允许浏览器访问前置摄像头');
     expect(root.innerHTML).toContain('重试前摄');
     expect(root.innerHTML).toContain('模拟模式');
+
+    app.dispose();
+  });
+
+  it('shows a recoverable Chinese pose model error and can continue in simulated mode', async () => {
+    cameraStartError.current = new Error('model unavailable');
+    const { CameraRhythmSaberApp } = await import('./App');
+    const root = new FakeElement('root');
+    const app = new CameraRhythmSaberApp(root as unknown as HTMLElement, testChart);
+
+    app.start();
+    root.findAction('start-camera').click();
+    await flushPromises();
+
+    expect(root.innerHTML).toContain('姿态识别模型启动失败');
+    expect(root.innerHTML).toContain('重试前摄');
+    expect(root.innerHTML).toContain('模拟模式');
+
+    root.findAction('start-simulated').click();
+    await flushPromises();
+
+    expect(root.innerHTML).toContain('开始关卡');
+    expect(debugOverlays.at(-1)?.setVisible).toHaveBeenCalledWith(true);
+
+    app.dispose();
+  });
+
+  it('shows an unsupported browser message without starting controls when WebGL is unavailable', async () => {
+    webglSupported.current = false;
+    const { CameraRhythmSaberApp } = await import('./App');
+    const root = new FakeElement('root');
+    const app = new CameraRhythmSaberApp(root as unknown as HTMLElement, testChart);
+
+    app.start();
+
+    expect(root.innerHTML).toContain('当前浏览器不支持 WebGL');
+    expect(root.innerHTML).toContain('无法渲染 3D 游戏舞台');
+    expect(root.innerHTML).not.toContain('data-action="start-camera"');
+    expect(root.innerHTML).not.toContain('data-action="start-simulated"');
+    expect(renderers).toHaveLength(0);
+    expect(debugOverlays).toHaveLength(0);
 
     app.dispose();
   });

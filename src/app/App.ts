@@ -88,7 +88,7 @@ export class CameraRhythmSaberApp {
     this.debugOverlay?.setVisible(false);
     this.hud.innerHTML = '';
     if (!this.webglSupported) {
-      this.showError('当前浏览器不支持 WebGL，无法渲染 3D 游戏舞台。请换用支持 WebGL 的移动浏览器。');
+      this.showError('当前浏览器不支持 WebGL，无法渲染 3D 游戏舞台。请换用支持 WebGL 的移动浏览器。', false);
       return;
     }
     this.panel.innerHTML = `
@@ -307,17 +307,21 @@ export class CameraRhythmSaberApp {
     this.bindPanelActions();
   }
 
-  private showError(message: string): void {
+  private showError(message: string, recoverable = true): void {
     this.mode = 'error';
     this.panel.innerHTML = `
       <section class="panel-card wide">
         <p class="eyebrow">错误</p>
         <h1>无法启动</h1>
         <p class="subtitle">${message}</p>
-        <div class="action-row">
+        ${
+          recoverable
+            ? `<div class="action-row">
           <button class="primary" data-action="start-camera">重试前摄</button>
           <button data-action="start-simulated">模拟模式</button>
-        </div>
+        </div>`
+            : ''
+        }
       </section>
     `;
     this.bindPanelActions();
