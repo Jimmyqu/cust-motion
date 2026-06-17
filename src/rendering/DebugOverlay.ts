@@ -1,5 +1,6 @@
 import type { MotionInput, PoseFrame, PoseKeypointName } from '../domain/types';
 import { targetZoneByLane } from '../domain/playfield';
+import { formatDebugDiagnostics } from './debugDiagnostics';
 
 const bones: [PoseKeypointName, PoseKeypointName][] = [
   ['left_shoulder', 'right_shoulder'],
@@ -61,7 +62,7 @@ export class DebugOverlay {
       this.drawSkeleton(pose);
     }
     if (motion) {
-      this.drawMotion(motion, fps);
+      this.drawMotion(pose, motion, fps);
     }
     ctx.restore();
   }
@@ -131,7 +132,7 @@ export class DebugOverlay {
     ctx.restore();
   }
 
-  private drawMotion(motion: MotionInput, fps: number): void {
+  private drawMotion(pose: PoseFrame | undefined, motion: MotionInput, fps: number): void {
     this.leftTrail = pushTrail(this.leftTrail, motion.leftHand.position);
     this.rightTrail = pushTrail(this.rightTrail, motion.rightHand.position);
     this.drawTrail(this.leftTrail, '#29c9ff');
@@ -153,9 +154,9 @@ export class DebugOverlay {
 
     ctx.fillStyle = '#f6fbff';
     ctx.font = '16px ui-sans-serif, system-ui';
-    ctx.fillText(`tracking: ${motion.trackingQuality}`, 24, 32);
-    ctx.fillText(`fps: ${fps.toFixed(0)}`, 24, 56);
-    ctx.fillText(`lean: ${motion.lean.toFixed(2)} crouch: ${motion.crouchAmount.toFixed(2)}`, 24, 80);
+    formatDebugDiagnostics(pose, motion, fps).forEach((line, index) => {
+      ctx.fillText(line, 24, 32 + index * 24);
+    });
   }
 
   private drawTrail(points: { x: number; y: number }[], color: string): void {
