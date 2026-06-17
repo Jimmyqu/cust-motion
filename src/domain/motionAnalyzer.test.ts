@@ -112,4 +112,23 @@ describe('MotionAnalyzer', () => {
     expect(unstable.leftHand.speed).toBe(0);
     expect(unstable.rightHand.speed).toBe(0);
   });
+
+  it('holds the last reliable body position during brief low-confidence torso frames', () => {
+    const calibration = calibratePose(frame(0));
+    const analyzer = new MotionAnalyzer(calibration, { smoothing: 0, minConfidence: 0.45 });
+
+    const reliable = analyzer.analyze(frame(0));
+    const unstable = analyzer.analyze(frame(100, {
+      left_shoulder: { x: 0.08, y: 0.74, score: 0.1 },
+      right_shoulder: { x: 0.24, y: 0.74, score: 0.1 },
+      left_hip: { x: 0.1, y: 0.95, score: 0.1 },
+      right_hip: { x: 0.22, y: 0.95, score: 0.1 },
+    }));
+
+    expect(unstable.trackingQuality).toBe('limited');
+    expect(unstable.bodyCenter).toEqual(reliable.bodyCenter);
+    expect(unstable.lean).toBeCloseTo(reliable.lean);
+    expect(unstable.crouchAmount).toBeCloseTo(reliable.crouchAmount);
+    expect(unstable.isCrouching).toBe(false);
+  });
 });

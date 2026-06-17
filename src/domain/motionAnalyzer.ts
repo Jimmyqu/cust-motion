@@ -65,9 +65,13 @@ export class MotionAnalyzer {
     const leftWrist = requirePoint(points, 'left_wrist');
     const rightWrist = requirePoint(points, 'right_wrist');
 
+    const torsoPoints = [leftShoulder, rightShoulder, leftHip, rightHip];
+    const hasReliableTorso = torsoPoints.every((point) => point.score >= this.minConfidence);
     const shoulderCenter = midpoint(leftShoulder, rightShoulder);
     const hipCenter = midpoint(leftHip, rightHip);
-    const rawCenter = midpoint(shoulderCenter, hipCenter);
+    const rawCenter = hasReliableTorso || !this.previous
+      ? midpoint(shoulderCenter, hipCenter)
+      : this.previous.bodyCenter;
     const bodyCenter = this.previous ? smoothPoint(this.previous.bodyCenter, rawCenter, this.smoothing) : rawCenter;
     const dtSeconds = this.previous
       ? Math.max((frame.timestampMs - this.previous.timestampMs) / 1000, 1 / 120)
@@ -77,7 +81,10 @@ export class MotionAnalyzer {
     const rightHand = this.handMotion(rightWrist, this.previous?.rightHand, dtSeconds);
     const lean = (bodyCenter.x - this.calibration.neutralCenter.x) / this.calibration.shoulderWidth;
     const crouchAmount = Math.max(0, (bodyCenter.y - this.calibration.neutralCenter.y) / this.calibration.standingHeight);
-    const trackingQuality = classifyTrackingQuality(REQUIRED_POINTS.map((name) => requirePoint(points, name).score), this.minConfidence);
+    const trackingQuality = capInterpolatedQuality(
+      classifyTrackingQuality(this.stabilizedScores(points, hasReliableTorso), this.minConfidence),
+      this.previous !== undefined && !hasReliableTorso,
+    );
 
     const motion: MotionInput = {
       leftHand,
@@ -114,6 +121,19 @@ export class MotionAnalyzer {
       direction: directionFromVelocity(velocity, speed),
       confidence: point.score,
     };
+  }
+
+  private stabilizedScores(points: Map<PoseKeypointName, PoseKeypoint>, hasReliableTorso: boolean): number[] {
+    return REQUIRED_POINTS.map((name) => {
+      const point = requirePoint(points, name);
+      const isTorsoPoint = name === 'left_shoulder' || name === 'right_shoulder' || name === 'left_hip' || name === 'right_hip';
+
+      if (this.previous && isTorsoPoint && !hasReliableTorso) {
+        return Math.max(point.score, this.minConfidence);
+      }
+
+      return point.score;
+    });
   }
 }
 
@@ -163,6 +183,10 @@ function classifyTrackingQuality(scores: number[], minConfidence: number): Track
     return 'limited';
   }
   return 'lost';
+}
+
+function capInterpolatedQuality(quality: TrackingQuality, usedInterpolatedTorso: boolean): TrackingQuality {
+  return usedInterpolatedTorso && quality === 'good' ? 'limited' : quality;
 }
 
 function clamp(value: number, min: number, max: number): number {
