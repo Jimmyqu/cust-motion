@@ -3,16 +3,37 @@ export type ClockState = 'idle' | 'running' | 'paused' | 'ended';
 export class AudioClock {
   private context?: AudioContext;
   private startedAt = 0;
+  private wallStartedAtMs = 0;
+  private lastTimeMs = 0;
   private pausedAtMs = 0;
   private timer?: number;
   state: ClockState = 'idle';
 
   constructor(private readonly durationMs: number) {}
 
-  async start(): Promise<void> {
-    this.stop();
+  async prepare(): Promise<void> {
+    if (this.context) {
+      await this.resumeWithoutBlocking(this.context);
+      return;
+    }
     this.context = new AudioContext();
+    await this.resumeWithoutBlocking(this.context);
+  }
+
+  async start(): Promise<void> {
+    const existingContext = this.context;
+    if (this.timer !== undefined) {
+      window.clearTimeout(this.timer);
+    }
+    if (existingContext && this.state !== 'idle') {
+      void existingContext.close();
+      this.context = new AudioContext();
+    } else {
+      this.context = existingContext ?? new AudioContext();
+    }
     this.startedAt = this.context.currentTime;
+    this.wallStartedAtMs = performance.now();
+    this.lastTimeMs = 0;
     this.pausedAtMs = 0;
     this.state = 'running';
     this.scheduleGeneratedSong(this.context, this.durationMs);
@@ -37,8 +58,9 @@ export class AudioClock {
     if (this.state !== 'paused' || !this.context) {
       return;
     }
-    await this.context.resume();
+    await this.resumeWithoutBlocking(this.context);
     this.startedAt = this.context.currentTime - this.pausedAtMs / 1000;
+    this.wallStartedAtMs = performance.now() - this.pausedAtMs;
     this.timer = window.setTimeout(() => {
       this.state = 'ended';
     }, Math.max(0, this.durationMs - this.pausedAtMs));
@@ -52,6 +74,8 @@ export class AudioClock {
     void this.context?.close();
     this.context = undefined;
     this.startedAt = 0;
+    this.wallStartedAtMs = 0;
+    this.lastTimeMs = 0;
     this.pausedAtMs = 0;
     this.state = 'idle';
   }
@@ -63,7 +87,23 @@ export class AudioClock {
     if (this.state === 'paused') {
       return this.pausedAtMs;
     }
-    return Math.min(this.durationMs, Math.max(0, (this.context.currentTime - this.startedAt) * 1000));
+    let timeMs: number;
+    if (this.context.state !== 'running') {
+      timeMs = performance.now() - this.wallStartedAtMs;
+    } else {
+      timeMs = (this.context.currentTime - this.startedAt) * 1000;
+    }
+    this.lastTimeMs = Math.min(this.durationMs, Math.max(this.lastTimeMs, timeMs));
+    return this.lastTimeMs;
+  }
+
+  private async resumeWithoutBlocking(context: AudioContext): Promise<void> {
+    await Promise.race([
+      context.resume(),
+      new Promise<void>((resolve) => {
+        globalThis.setTimeout(resolve, 300);
+      }),
+    ]);
   }
 
   private scheduleGeneratedSong(context: AudioContext, durationMs: number): void {

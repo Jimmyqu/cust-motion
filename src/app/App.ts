@@ -210,8 +210,14 @@ export class CameraRhythmSaberApp {
     this.updateCalibrationPanel();
   }
 
-  private beginCountdown(): void {
+  private async beginCountdown(): Promise<void> {
     void this.enterLandscapeImmersion();
+    try {
+      await this.audioClock.prepare();
+    } catch (error) {
+      this.showError(`音频启动失败：${readableError(error)}`);
+      return;
+    }
     this.mode = 'countdown';
     this.debugOverlay?.setVisible(false);
     this.countdownStartedAt = performance.now();
@@ -336,7 +342,7 @@ export class CameraRhythmSaberApp {
         break;
       case 'countdown':
         if (this.readinessState.ready) {
-          this.beginCountdown();
+          await this.beginCountdown();
         }
         break;
       case 'recalibrate':
