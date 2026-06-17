@@ -36,47 +36,52 @@ export class CameraPoseSource implements PoseSource {
   constructor(private readonly inferenceIntervalMs = 40) {}
 
   async start(onFrame: (frame: PoseFrame) => void): Promise<void> {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('This browser does not support camera capture.');
-    }
-
-    this.video = document.createElement('video');
-    this.video.muted = true;
-    this.video.playsInline = true;
-    this.video.autoplay = true;
-    this.video.style.display = 'none';
-
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: 'user',
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-      },
-      audio: false,
-    });
-    this.video.srcObject = this.stream;
-    document.body.appendChild(this.video);
-    await this.video.play();
-
-    this.landmarker = await createPoseLandmarker();
-    this.state = { mode: 'camera', video: this.video };
-
-    const tick = (now: number) => {
-      if (!this.video || !this.landmarker) {
-        return;
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('This browser does not support camera capture.');
       }
-      if (now - this.lastInference >= this.inferenceIntervalMs && this.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-        this.lastInference = now;
-        const result = this.landmarker.detectForVideo(this.video, now);
-        const frame = poseResultToFrame(result, now);
-        if (frame) {
-          onFrame(frame);
+
+      this.video = document.createElement('video');
+      this.video.muted = true;
+      this.video.playsInline = true;
+      this.video.autoplay = true;
+      this.video.style.display = 'none';
+
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'user',
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      });
+      this.video.srcObject = this.stream;
+      document.body.appendChild(this.video);
+      await this.video.play();
+
+      this.landmarker = await createPoseLandmarker();
+      this.state = { mode: 'camera', video: this.video };
+
+      const tick = (now: number) => {
+        if (!this.video || !this.landmarker) {
+          return;
         }
-      }
-      this.rafId = requestAnimationFrame(tick);
-    };
+        if (now - this.lastInference >= this.inferenceIntervalMs && this.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+          this.lastInference = now;
+          const result = this.landmarker.detectForVideo(this.video, now);
+          const frame = poseResultToFrame(result, now);
+          if (frame) {
+            onFrame(frame);
+          }
+        }
+        this.rafId = requestAnimationFrame(tick);
+      };
 
-    this.rafId = requestAnimationFrame(tick);
+      this.rafId = requestAnimationFrame(tick);
+    } catch (error) {
+      this.stop();
+      throw error;
+    }
   }
 
   stop(): void {
