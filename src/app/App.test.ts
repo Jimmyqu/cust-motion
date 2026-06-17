@@ -1,13 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Chart } from '../domain/types';
+import type { Chart, PoseFrame } from '../domain/types';
 
-const { cameraSources, debugOverlays, renderers } = vi.hoisted(() => ({
+const { audioClocks, cameraSources, debugOverlays, renderers, simulatedSources } = vi.hoisted(() => ({
+  audioClocks: [] as Array<{
+    currentTimeMs: number;
+    state: string;
+    prepare: ReturnType<typeof vi.fn>;
+    start: ReturnType<typeof vi.fn>;
+    pause: ReturnType<typeof vi.fn>;
+    resume: ReturnType<typeof vi.fn>;
+    stop: ReturnType<typeof vi.fn>;
+  }>,
   cameraSources: [] as Array<{ inferenceIntervalMs?: number; start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> }>,
   debugOverlays: [] as Array<{ setVisible: ReturnType<typeof vi.fn>; draw: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }>,
   renderers: [] as Array<{ quality: string; render: ReturnType<typeof vi.fn>; flashHit: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }>,
+  simulatedSources: [] as Array<{
+    emit: (frame: PoseFrame) => void;
+    start: ReturnType<typeof vi.fn>;
+    stop: ReturnType<typeof vi.fn>;
+  }>,
 }));
 
-const stablePose = {
+const stablePose: PoseFrame = {
   timestampMs: 1_000,
   keypoints: [
     { name: 'left_shoulder', x: 0.42, y: 0.34, score: 0.98 },
@@ -52,7 +66,9 @@ vi.mock('../infrastructure/audioClock', () => ({
     state = 'ready';
     currentTimeMs = 0;
 
-    constructor(readonly durationMs: number) {}
+    constructor(readonly durationMs: number) {
+      audioClocks.push(this);
+    }
 
     prepare = vi.fn().mockResolvedValue(undefined);
     start = vi.fn().mockResolvedValue(undefined);
@@ -78,22 +94,44 @@ vi.mock('../infrastructure/cameraPose', () => ({
   },
   SimulatedPoseSource: class {
     state = { mode: 'simulated' };
-    start = vi.fn((onFrame: (frame: typeof stablePose) => void) => {
+    private onFrame?: (frame: PoseFrame) => void;
+
+    constructor() {
+      simulatedSources.push(this);
+    }
+
+    start = vi.fn((onFrame: (frame: PoseFrame) => void) => {
+      this.onFrame = onFrame;
       for (let index = 0; index < 70; index += 1) {
         onFrame({ ...stablePose, timestampMs: stablePose.timestampMs + index * 50 });
       }
       return Promise.resolve();
     });
     stop = vi.fn();
+
+    emit(frame: PoseFrame) {
+      this.onFrame?.(frame);
+    }
   },
 }));
 
 describe('CameraRhythmSaberApp', () => {
+  let animationFrames: FrameRequestCallback[];
+  let nowMs: number;
+
   beforeEach(() => {
+    audioClocks.length = 0;
     cameraSources.length = 0;
     debugOverlays.length = 0;
     renderers.length = 0;
-    globalThis.requestAnimationFrame = vi.fn(() => 1);
+    simulatedSources.length = 0;
+    animationFrames = [];
+    nowMs = 1_000;
+    vi.spyOn(performance, 'now').mockImplementation(() => nowMs);
+    globalThis.requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+      animationFrames.push(callback);
+      return animationFrames.length;
+    });
     globalThis.cancelAnimationFrame = vi.fn();
   });
 
@@ -167,6 +205,57 @@ describe('CameraRhythmSaberApp', () => {
 
     app.dispose();
   });
+
+  it('soft-pauses on sustained tracking loss and resumes after stable recovery', async () => {
+    const { CameraRhythmSaberApp } = await import('./App');
+    const root = new FakeElement('root');
+    const app = new CameraRhythmSaberApp(root as unknown as HTMLElement, testChart);
+
+    app.start();
+    root.findAction('start-simulated').click();
+    await flushPromises();
+    root.findAction('countdown').click();
+    await flushPromises();
+    runNextFrame(4_300);
+    await flushPromises();
+
+    expect(audioClocks[0].start).toHaveBeenCalledTimes(1);
+
+    audioClocks[0].currentTimeMs = 1_000;
+    simulatedSources[0].emit(lostPose(1_000));
+    runNextFrame(4_400);
+    audioClocks[0].currentTimeMs = 1_800;
+    simulatedSources[0].emit(lostPose(1_800));
+    runNextFrame(4_500);
+
+    expect(audioClocks[0].pause).toHaveBeenCalledTimes(1);
+    expect(root.innerHTML).toContain('data-action="resume" disabled');
+
+    simulatedSources[0].emit(recoveredPose(2_000));
+    runNextFrame(4_600);
+    simulatedSources[0].emit(recoveredPose(2_900));
+    runNextFrame(4_700);
+
+    const resume = root.findAction('resume');
+    expect(resume.disabled).toBe(false);
+
+    resume.click();
+    await flushPromises();
+
+    expect(audioClocks[0].resume).toHaveBeenCalledTimes(1);
+    expect(root.innerHTML).not.toContain('data-action="resume"');
+
+    app.dispose();
+  });
+
+  function runNextFrame(timestampMs: number): void {
+    nowMs = timestampMs;
+    const callback = animationFrames.shift();
+    if (!callback) {
+      throw new Error('Missing animation frame');
+    }
+    callback(timestampMs);
+  }
 });
 
 const testChart: Chart = {
@@ -179,6 +268,22 @@ async function flushPromises(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
+}
+
+function lostPose(timestampMs: number): PoseFrame {
+  return poseWithScores(timestampMs, 0.08);
+}
+
+function recoveredPose(timestampMs: number): PoseFrame {
+  return poseWithScores(timestampMs, 0.98);
+}
+
+function poseWithScores(timestampMs: number, score: number): PoseFrame {
+  return {
+    ...stablePose,
+    timestampMs,
+    keypoints: stablePose.keypoints.map((point) => ({ ...point, score })),
+  };
 }
 
 class FakeElement {

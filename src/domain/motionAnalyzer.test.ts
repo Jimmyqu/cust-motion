@@ -131,4 +131,21 @@ describe('MotionAnalyzer', () => {
     expect(unstable.crouchAmount).toBeCloseTo(reliable.crouchAmount);
     expect(unstable.isCrouching).toBe(false);
   });
+
+  it('reports tracking lost when torso and both hands are unavailable after interpolation', () => {
+    const calibration = calibratePose(frame(0));
+    const analyzer = new MotionAnalyzer(calibration, { smoothing: 0, minConfidence: 0.45 });
+
+    analyzer.analyze(frame(0));
+    const lost = analyzer.analyze(frame(100, {
+      left_shoulder: { x: 0.08, y: 0.74, score: 0.1 },
+      right_shoulder: { x: 0.24, y: 0.74, score: 0.1 },
+      left_hip: { x: 0.1, y: 0.95, score: 0.1 },
+      right_hip: { x: 0.22, y: 0.95, score: 0.1 },
+      left_wrist: { x: 0.05, y: 0.1, score: 0.08 },
+      right_wrist: { x: 0.95, y: 0.1, score: 0.08 },
+    }));
+
+    expect(lost.trackingQuality).toBe('lost');
+  });
 });

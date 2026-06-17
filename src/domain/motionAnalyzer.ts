@@ -81,9 +81,12 @@ export class MotionAnalyzer {
     const rightHand = this.handMotion(rightWrist, this.previous?.rightHand, dtSeconds);
     const lean = (bodyCenter.x - this.calibration.neutralCenter.x) / this.calibration.shoulderWidth;
     const crouchAmount = Math.max(0, (bodyCenter.y - this.calibration.neutralCenter.y) / this.calibration.standingHeight);
+    const usedInterpolatedTorso = this.previous !== undefined && !hasReliableTorso;
+    const bothHandsUnavailable = leftWrist.score < this.minConfidence && rightWrist.score < this.minConfidence;
     const trackingQuality = capInterpolatedQuality(
       classifyTrackingQuality(this.stabilizedScores(points, hasReliableTorso), this.minConfidence),
-      this.previous !== undefined && !hasReliableTorso,
+      usedInterpolatedTorso,
+      bothHandsUnavailable,
     );
 
     const motion: MotionInput = {
@@ -185,7 +188,10 @@ function classifyTrackingQuality(scores: number[], minConfidence: number): Track
   return 'lost';
 }
 
-function capInterpolatedQuality(quality: TrackingQuality, usedInterpolatedTorso: boolean): TrackingQuality {
+function capInterpolatedQuality(quality: TrackingQuality, usedInterpolatedTorso: boolean, bothHandsUnavailable: boolean): TrackingQuality {
+  if (usedInterpolatedTorso && bothHandsUnavailable) {
+    return 'lost';
+  }
   return usedInterpolatedTorso && quality === 'good' ? 'limited' : quality;
 }
 
