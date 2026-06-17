@@ -95,7 +95,9 @@ export class MotionAnalyzer {
   }
 
   private handMotion(point: PoseKeypoint, previous: HandMotion | undefined, dtSeconds: number): HandMotion {
-    const rawPosition = { x: point.x, y: point.y };
+    const rawPosition = point.score >= this.minConfidence || !previous
+      ? { x: point.x, y: point.y }
+      : previous.position;
     const position = previous ? smoothPoint(previous.position, rawPosition, this.smoothing) : rawPosition;
     const velocity = previous
       ? {

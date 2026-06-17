@@ -92,4 +92,24 @@ describe('MotionAnalyzer', () => {
     expect(motion.trackingQuality).toBe('lost');
     expect(motion.leftHand.confidence).toBeLessThan(0.3);
   });
+
+  it('holds the last reliable hand position during brief low-confidence wrist frames', () => {
+    const calibration = calibratePose(frame(0));
+    const analyzer = new MotionAnalyzer(calibration, { smoothing: 0, minConfidence: 0.45 });
+
+    const reliable = analyzer.analyze(frame(0, {
+      left_wrist: { x: 0.34, y: 0.5, score: 0.96 },
+      right_wrist: { x: 0.66, y: 0.5, score: 0.96 },
+    }));
+    const unstable = analyzer.analyze(frame(100, {
+      left_wrist: { x: 0.05, y: 0.1, score: 0.08 },
+      right_wrist: { x: 0.95, y: 0.1, score: 0.08 },
+    }));
+
+    expect(unstable.trackingQuality).toBe('limited');
+    expect(unstable.leftHand.position).toEqual(reliable.leftHand.position);
+    expect(unstable.rightHand.position).toEqual(reliable.rightHand.position);
+    expect(unstable.leftHand.speed).toBe(0);
+    expect(unstable.rightHand.speed).toBe(0);
+  });
 });
