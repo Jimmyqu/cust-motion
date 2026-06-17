@@ -5,6 +5,7 @@ import { MotionAnalyzer, calibratePose } from '../domain/motionAnalyzer';
 import { TrackingRecoveryGate, type TrackingRecoveryState } from '../domain/trackingRecovery';
 import type { CalibrationProfile, Chart, MotionInput, PoseFrame } from '../domain/types';
 import { AudioClock } from '../infrastructure/audioClock';
+import { describeCameraStartupError } from '../infrastructure/cameraError';
 import { CameraPoseSource, SimulatedPoseSource, type PoseSource } from '../infrastructure/cameraPose';
 import { requestLandscapeImmersion } from '../infrastructure/immersiveDisplay';
 import { DebugOverlay } from '../rendering/DebugOverlay';
@@ -120,7 +121,7 @@ export class CameraRhythmSaberApp {
     try {
       await this.initializePoseSource(new CameraPoseSource(this.quality === 'low' ? 66 : 40));
     } catch (error) {
-      this.showError(`前置摄像头或姿态模型启动失败：${readableError(error)}`);
+      this.showError(describeCameraStartupError(error));
     }
   }
 
