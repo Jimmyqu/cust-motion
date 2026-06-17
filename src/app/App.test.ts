@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Chart } from '../domain/types';
 
-const { cameraSources, debugOverlays } = vi.hoisted(() => ({
+const { cameraSources, debugOverlays, renderers } = vi.hoisted(() => ({
   cameraSources: [] as Array<{ inferenceIntervalMs?: number; start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> }>,
   debugOverlays: [] as Array<{ setVisible: ReturnType<typeof vi.fn>; draw: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }>,
+  renderers: [] as Array<{ quality: string; render: ReturnType<typeof vi.fn>; flashHit: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }>,
 }));
 
 const stablePose = {
@@ -27,6 +28,10 @@ vi.mock('../rendering/GameRenderer', () => ({
     render = vi.fn();
     flashHit = vi.fn();
     dispose = vi.fn();
+
+    constructor(_stage: HTMLElement, readonly quality = 'high') {
+      renderers.push(this);
+    }
   },
 }));
 
@@ -87,6 +92,7 @@ describe('CameraRhythmSaberApp', () => {
   beforeEach(() => {
     cameraSources.length = 0;
     debugOverlays.length = 0;
+    renderers.length = 0;
     globalThis.requestAnimationFrame = vi.fn(() => 1);
     globalThis.cancelAnimationFrame = vi.fn();
   });
@@ -122,6 +128,24 @@ describe('CameraRhythmSaberApp', () => {
     app.dispose();
 
     expect(cameraSources[0].stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('starts low-quality camera mode with reduced pose inference and renderer quality', async () => {
+    const { CameraRhythmSaberApp } = await import('./App');
+    const root = new FakeElement('root');
+    const app = new CameraRhythmSaberApp(root as unknown as HTMLElement, testChart);
+
+    app.start();
+    const quality = root.findAction('quality');
+    quality.value = 'low';
+    quality.change();
+    root.findAction('start-camera').click();
+    await flushPromises();
+
+    expect(renderers.at(-1)?.quality).toBe('low');
+    expect(cameraSources[0].inferenceIntervalMs).toBe(66);
+
+    app.dispose();
   });
 
   it('shows the debug overlay during calibration and hides it for countdown play', async () => {
@@ -163,6 +187,7 @@ class FakeElement {
   disabled = false;
   style: Record<string, string> = {};
   textContent = '';
+  value = '';
   private markup = '';
   private readonly children = new Map<string, FakeElement>();
   private readonly actions = new Map<string, FakeElement>();
@@ -217,6 +242,10 @@ class FakeElement {
 
   click(): void {
     this.listeners.get('click')?.forEach((listener) => listener());
+  }
+
+  change(): void {
+    this.listeners.get('change')?.forEach((listener) => listener());
   }
 
   findAction(action: string): FakeElement {
