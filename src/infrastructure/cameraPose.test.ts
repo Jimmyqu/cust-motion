@@ -1,18 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { createFromOptions, forVisionTasks } = vi.hoisted(() => ({
+const { createFromOptions, forVisionTasks, tasksVisionModuleLoads } = vi.hoisted(() => ({
   createFromOptions: vi.fn(),
   forVisionTasks: vi.fn(),
+  tasksVisionModuleLoads: { current: 0 },
 }));
 
-vi.mock('@mediapipe/tasks-vision', () => ({
-  FilesetResolver: {
-    forVisionTasks,
-  },
-  PoseLandmarker: {
-    createFromOptions,
-  },
-}));
+vi.mock('@mediapipe/tasks-vision', () => {
+  tasksVisionModuleLoads.current += 1;
+  return {
+    FilesetResolver: {
+      forVisionTasks,
+    },
+    PoseLandmarker: {
+      createFromOptions,
+    },
+  };
+});
 
 describe('CameraPoseSource', () => {
   const originalNavigator = globalThis.navigator;
@@ -24,6 +28,7 @@ describe('CameraPoseSource', () => {
     vi.resetModules();
     forVisionTasks.mockReset();
     createFromOptions.mockReset();
+    tasksVisionModuleLoads.current = 0;
     globalThis.requestAnimationFrame = vi.fn(() => 1);
     globalThis.cancelAnimationFrame = vi.fn();
   });
@@ -66,6 +71,15 @@ describe('CameraPoseSource', () => {
     expect(createFromOptions).toHaveBeenCalledTimes(2);
     expect(createFromOptions.mock.calls[0]?.[1].baseOptions.delegate).toBe('GPU');
     expect(createFromOptions.mock.calls[1]?.[1].baseOptions.delegate).toBe('CPU');
+  });
+
+  it('does not load MediaPipe when only simulated pose capture is used', async () => {
+    const { SimulatedPoseSource } = await import('./cameraPose');
+    const source = new SimulatedPoseSource();
+
+    await source.start(vi.fn());
+
+    expect(tasksVisionModuleLoads.current).toBe(0);
   });
 });
 

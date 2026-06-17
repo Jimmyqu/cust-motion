@@ -1,5 +1,7 @@
-import { FilesetResolver, PoseLandmarker, type PoseLandmarkerResult } from '@mediapipe/tasks-vision';
+import type { PoseLandmarker, PoseLandmarkerResult } from '@mediapipe/tasks-vision';
 import type { PoseFrame, PoseKeypoint, PoseKeypointName } from '../domain/types';
+
+type TasksVisionModule = typeof import('@mediapipe/tasks-vision');
 
 export type PoseSourceMode = 'camera' | 'simulated';
 
@@ -145,19 +147,21 @@ function poseResultToFrame(result: PoseLandmarkerResult, timestampMs: number): P
 }
 
 async function createPoseLandmarker(): Promise<PoseLandmarker> {
+  const { FilesetResolver, PoseLandmarker } = await import('@mediapipe/tasks-vision');
   const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/wasm');
   try {
-    return await createPoseLandmarkerWithDelegate(vision, 'GPU');
+    return await createPoseLandmarkerWithDelegate(PoseLandmarker, vision, 'GPU');
   } catch {
-    return createPoseLandmarkerWithDelegate(vision, 'CPU');
+    return createPoseLandmarkerWithDelegate(PoseLandmarker, vision, 'CPU');
   }
 }
 
 function createPoseLandmarkerWithDelegate(
-  vision: Parameters<typeof PoseLandmarker.createFromOptions>[0],
+  poseLandmarker: TasksVisionModule['PoseLandmarker'],
+  vision: Parameters<TasksVisionModule['PoseLandmarker']['createFromOptions']>[0],
   delegate: 'GPU' | 'CPU',
 ): Promise<PoseLandmarker> {
-  return PoseLandmarker.createFromOptions(vision, {
+  return poseLandmarker.createFromOptions(vision, {
     baseOptions: {
       modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task',
       delegate,
