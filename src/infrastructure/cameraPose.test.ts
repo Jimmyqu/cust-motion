@@ -64,6 +64,11 @@ describe('CameraPoseSource', () => {
 
     expect(stop).toHaveBeenCalledTimes(1);
     expect(remove).toHaveBeenCalledTimes(1);
+
+    source.stop();
+
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(remove).toHaveBeenCalledTimes(1);
   });
 });
 

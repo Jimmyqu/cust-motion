@@ -87,10 +87,15 @@ export class CameraPoseSource implements PoseSource {
   stop(): void {
     if (this.rafId !== undefined) {
       cancelAnimationFrame(this.rafId);
+      this.rafId = undefined;
     }
     this.stream?.getTracks().forEach((track) => track.stop());
     this.landmarker?.close();
     this.video?.remove();
+    this.stream = undefined;
+    this.landmarker = undefined;
+    this.video = undefined;
+    this.state = { mode: 'camera' };
   }
 }
 
