@@ -41,4 +41,20 @@ describe('chart queries', () => {
     expect(events.length).toBeGreaterThan(0);
     expect(events.every((event) => event.timeMs >= 0 && event.timeMs <= 2_000)).toBe(true);
   });
+
+  it('keeps already-started obstacles visible until their wall duration ends', () => {
+    const chart = {
+      bpm: 120,
+      durationMs: 5_000,
+      events: [
+        { id: 'early-wall', kind: 'obstacle' as const, timeMs: 1_000, durationMs: 1_500, obstacle: 'left-wall' as const },
+        { id: 'expired-wall', kind: 'obstacle' as const, timeMs: 200, durationMs: 500, obstacle: 'right-wall' as const },
+      ],
+    };
+
+    const events = getUpcomingEvents(chart, 1_800, 1_000);
+
+    expect(events.map((event) => event.id)).toContain('early-wall');
+    expect(events.map((event) => event.id)).not.toContain('expired-wall');
+  });
 });

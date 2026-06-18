@@ -41,7 +41,13 @@ export const builtInChart: Chart = {
 
 export function getUpcomingEvents(chart: Chart, timeMs: number, lookAheadMs: number): ChartEvent[] {
   const end = timeMs + lookAheadMs;
-  return chart.events.filter((event) => event.timeMs >= timeMs && event.timeMs <= end);
+  return chart.events.filter((event) => {
+    if (event.kind === 'obstacle') {
+      return event.timeMs <= end && event.timeMs + event.durationMs >= timeMs;
+    }
+
+    return event.timeMs >= timeMs && event.timeMs <= end;
+  });
 }
 
 export function getActiveTargets(chart: Chart, timeMs: number): TargetEvent[] {
