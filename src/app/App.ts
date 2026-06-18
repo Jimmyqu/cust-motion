@@ -9,7 +9,7 @@ import { describeCameraStartupError } from '../infrastructure/cameraError';
 import { CameraPoseSource, SimulatedPoseSource, type PoseSource } from '../infrastructure/cameraPose';
 import { requestLandscapeImmersion } from '../infrastructure/immersiveDisplay';
 import { DebugOverlay } from '../rendering/DebugOverlay';
-import { GameRenderer } from '../rendering/GameRenderer';
+import type { GameRenderer } from '../rendering/GameRenderer';
 import { isWebGLSupported } from '../rendering/webglSupport';
 
 type AppMode = 'boot' | 'permission' | 'loading' | 'calibration' | 'countdown' | 'playing' | 'paused' | 'results' | 'error';
@@ -39,6 +39,7 @@ export class CameraRhythmSaberApp {
   private countdownStartedAt = 0;
   private lastFrameAt = performance.now();
   private fps = 0;
+  private disposed = false;
 
   constructor(
     private readonly root: HTMLElement,
@@ -53,9 +54,6 @@ export class CameraRhythmSaberApp {
     this.stage = requireElement(this.root, '.stage');
     this.hud = requireElement(this.root, '.hud');
     this.panel = requireElement(this.root, '.panel');
-    if (this.webglSupported) {
-      this.rebuildRenderer();
-    }
     this.audioClock = new AudioClock(chart.durationMs);
     this.engine = new RhythmGameEngine(chart);
   }
@@ -66,6 +64,7 @@ export class CameraRhythmSaberApp {
   }
 
   dispose(): void {
+    this.disposed = true;
     if (this.rafId !== undefined) {
       cancelAnimationFrame(this.rafId);
     }
@@ -75,7 +74,16 @@ export class CameraRhythmSaberApp {
     this.debugOverlay?.dispose();
   }
 
-  private rebuildRenderer(): void {
+  private async ensureRenderer(rebuild = false): Promise<void> {
+    if (!this.webglSupported || (this.renderer && !rebuild)) {
+      return;
+    }
+
+    const { GameRenderer } = await import('../rendering/GameRenderer');
+    if (this.disposed) {
+      return;
+    }
+
     this.renderer?.dispose();
     this.debugOverlay?.dispose();
     this.renderer = new GameRenderer(this.stage, this.quality);
@@ -119,6 +127,7 @@ export class CameraRhythmSaberApp {
     this.mode = 'permission';
     this.panel.innerHTML = `<section class="panel-card"><h2>正在请求前摄权限</h2><p class="subtitle">请允许浏览器访问前置摄像头。</p></section>`;
     try {
+      await this.ensureRenderer();
       await this.initializePoseSource(new CameraPoseSource(this.quality === 'low' ? 66 : 40), undefined, describeCameraStartupError);
     } catch (error) {
       this.showError(describeCameraStartupError(error));
@@ -127,7 +136,12 @@ export class CameraRhythmSaberApp {
 
   private async startSimulated(): Promise<void> {
     void this.enterLandscapeImmersion();
-    await this.initializePoseSource(new SimulatedPoseSource());
+    try {
+      await this.ensureRenderer();
+      await this.initializePoseSource(new SimulatedPoseSource());
+    } catch (error) {
+      this.showError(readableError(error));
+    }
   }
 
   private async initializePoseSource(source: PoseSource, warning?: string, describeError = readableError): Promise<void> {
@@ -344,7 +358,9 @@ export class CameraRhythmSaberApp {
         break;
       case 'quality':
         this.quality = (element as HTMLSelectElement).value === 'low' ? 'low' : 'high';
-        this.rebuildRenderer();
+        if (this.renderer) {
+          await this.ensureRenderer(true);
+        }
         break;
       case 'fullscreen':
         await this.enterLandscapeImmersion();

@@ -1,7 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Chart, PoseFrame } from '../domain/types';
 
-const { audioClocks, cameraSources, debugOverlays, renderers, simulatedSources, cameraStartError, webglSupported } = vi.hoisted(() => ({
+const {
+  audioClocks,
+  cameraSources,
+  debugOverlays,
+  renderers,
+  simulatedSources,
+  cameraStartError,
+  webglSupported,
+  rendererModuleLoads,
+} = vi.hoisted(() => ({
   audioClocks: [] as Array<{
     currentTimeMs: number;
     state: string;
@@ -21,6 +30,7 @@ const { audioClocks, cameraSources, debugOverlays, renderers, simulatedSources, 
   }>,
   cameraStartError: { current: new DOMException('Permission denied', 'NotAllowedError') as Error },
   webglSupported: { current: true },
+  rendererModuleLoads: { current: 0 },
 }));
 
 const stablePose: PoseFrame = {
@@ -39,17 +49,20 @@ vi.mock('../rendering/webglSupport', () => ({
   isWebGLSupported: () => webglSupported.current,
 }));
 
-vi.mock('../rendering/GameRenderer', () => ({
-  GameRenderer: class {
-    render = vi.fn();
-    flashHit = vi.fn();
-    dispose = vi.fn();
+vi.mock('../rendering/GameRenderer', () => {
+  rendererModuleLoads.current += 1;
+  return {
+    GameRenderer: class {
+      render = vi.fn();
+      flashHit = vi.fn();
+      dispose = vi.fn();
 
-    constructor(_stage: HTMLElement, readonly quality = 'high') {
-      renderers.push(this);
-    }
-  },
-}));
+      constructor(_stage: HTMLElement, readonly quality = 'high') {
+        renderers.push(this);
+      }
+    },
+  };
+});
 
 vi.mock('../rendering/DebugOverlay', () => ({
   DebugOverlay: class {
@@ -122,6 +135,7 @@ describe('CameraRhythmSaberApp', () => {
   let nowMs: number;
 
   beforeEach(() => {
+    vi.resetModules();
     audioClocks.length = 0;
     cameraSources.length = 0;
     debugOverlays.length = 0;
@@ -129,6 +143,7 @@ describe('CameraRhythmSaberApp', () => {
     simulatedSources.length = 0;
     cameraStartError.current = new DOMException('Permission denied', 'NotAllowedError');
     webglSupported.current = true;
+    rendererModuleLoads.current = 0;
     animationFrames = [];
     nowMs = 1_000;
     vi.spyOn(performance, 'now').mockImplementation(() => nowMs);
@@ -137,6 +152,27 @@ describe('CameraRhythmSaberApp', () => {
       return animationFrames.length;
     });
     globalThis.cancelAnimationFrame = vi.fn();
+  });
+
+  it('does not load the 3D renderer before the player starts capture', async () => {
+    const { CameraRhythmSaberApp } = await import('./App');
+    const root = new FakeElement('root');
+    const app = new CameraRhythmSaberApp(root as unknown as HTMLElement, testChart);
+
+    app.start();
+
+    expect(root.innerHTML).toContain('启动前摄');
+    expect(rendererModuleLoads.current).toBe(0);
+    expect(renderers).toHaveLength(0);
+
+    root.findAction('start-simulated').click();
+    await flushPromises();
+
+    expect(rendererModuleLoads.current).toBe(1);
+    expect(renderers).toHaveLength(1);
+    expect(root.innerHTML).toContain('开始关卡');
+
+    app.dispose();
   });
 
   it('shows a recoverable Chinese camera permission error when front camera startup fails', async () => {
@@ -310,9 +346,9 @@ const testChart: Chart = {
 };
 
 async function flushPromises(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let index = 0; index < 10; index += 1) {
+    await Promise.resolve();
+  }
 }
 
 function lostPose(timestampMs: number): PoseFrame {
